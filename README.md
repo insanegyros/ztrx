@@ -31,6 +31,11 @@ Tested on Windows 11 with an **NVIDIA GeForce RTX 3050** (8 GB):
 cargo build --release -p victory
 ```
 
+Or without installing Rust: the **Build** workflow (GitHub → Actions) builds
+`victory.exe` on every push. Open a finished run and download the
+`ztrx-windows-x64-…` artifact under **Artifacts**; unzipped, `scripts\play.ps1`
+finds the exe as-is. Pushing a `v*` tag also attaches the zip to a Release.
+
 ## Play
 
 ```powershell

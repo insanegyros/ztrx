@@ -1,0 +1,87 @@
+name: Build
+
+# Builds victory.exe on GitHub's Windows machines, so nothing (not even Rust)
+# has to be installed locally. Download the result from the run's
+# "Artifacts" section, or from the Releases page for a `v*` tag.
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      diagnostics:
+        description: "Also build the diagnostics build (frame capture, scripted keys, debug logs)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v5
+
+      # The version and target pinned in rust-toolchain.toml.
+      - run: rustup toolchain install
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: build
+
+      - name: Build release
+        run: cargo build --release --locked -p victory
+
+      - name: Build diagnostics
+        if: ${{ inputs.diagnostics }}
+        run: cargo build --profile diag --locked -p victory --features diagnostics
+
+      # Keep the layout scripts\play.ps1 expects (..\target\release\victory.exe),
+      # so the downloaded folder runs as-is.
+      - name: Package
+        shell: pwsh
+        run: |
+          $out = "dist\ztrx"
+          New-Item -ItemType Directory -Force "$out\target\release", "$out\scripts" | Out-Null
+          Copy-Item target\release\victory.exe "$out\target\release\"
+          Copy-Item target\release\victory.pdb "$out\target\release\" -ErrorAction SilentlyContinue
+          Copy-Item scripts\play.ps1 "$out\scripts\"
+          Copy-Item README.md, LICENSE, victory.example.toml $out
+          if (Test-Path target\diag\victory.exe) {
+            New-Item -ItemType Directory -Force "$out\target\diag" | Out-Null
+            Copy-Item target\diag\victory.exe "$out\target\diag\"
+            Copy-Item target\diag\victory.pdb "$out\target\diag\" -ErrorAction SilentlyContinue
+          }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ztrx-windows-x64-${{ github.sha }}
+          path: dist/ztrx
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: ztrx-windows-x64-${{ github.sha }}
+          path: ztrx
+      - run: zip -r "ztrx-${{ github.ref_name }}-windows-x64.zip" ztrx
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: ztrx-${{ github.ref_name }}-windows-x64.zip
+          generate_release_notes: true
